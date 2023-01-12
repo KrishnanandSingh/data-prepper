@@ -5,6 +5,13 @@
 
 package org.opensearch.dataprepper.plugins.processor.aggregate.actions;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
 import org.opensearch.dataprepper.model.annotations.DataPrepperPlugin;
 import org.opensearch.dataprepper.model.event.Event;
 import org.opensearch.dataprepper.model.event.JacksonEvent;
@@ -13,64 +20,95 @@ import org.opensearch.dataprepper.plugins.processor.aggregate.AggregateActionInp
 import org.opensearch.dataprepper.plugins.processor.aggregate.AggregateActionResponse;
 import org.opensearch.dataprepper.plugins.processor.aggregate.GroupState;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.Optional;
-import java.util.Set;
-import java.util.List;
-import java.util.Map.Entry;
-
 /**
- * An AggregateAction that combines multiple Events into a single Event. This action will add the unique keys of each smaller Event to the overall groupState,
- * and will create a combined Event from the groupState on concludeGroup. If smaller Events have the same keys, then these keys will be overwritten with the keys of the
+ * An AggregateAction that combines multiple Events into a single Event. This
+ * action will add the unique keys of each smaller Event to the overall
+ * groupState,
+ * and will create a combined Event from the groupState on concludeGroup. If
+ * smaller Events have the same keys, then these keys will be overwritten with
+ * the keys of the
  * most recently handled Event.
+ * 
  * @since 1.3
  */
 @DataPrepperPlugin(name = "merge_all", pluginType = AggregateAction.class)
 public class MergeAllAggregateAction implements AggregateAction {
     static final String EVENT_TYPE = "event";
+    public final Map<String, String> dataTypeMap = new HashMap<String, String>();
 
+    // @DataPrepperPluginConstructor
+    // public MergeAllAggregateAction(final MergeAllAggregateActionConfig
+    // mergeAllAggregateActionConfig) {
+    // this.dataTypeMap = mergeAllAggregateActionConfig.getDataTypes();
+    // }
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see org.opensearch.dataprepper.plugins.processor.aggregate.AggregateAction#
+     * handleEvent(org.opensearch.dataprepper.model.event.Event,
+     * org.opensearch.dataprepper.plugins.processor.aggregate.AggregateActionInput)
+     */
     @Override
     public AggregateActionResponse handleEvent(final Event event, final AggregateActionInput aggregateActionInput) {
         final GroupState groupState = aggregateActionInput.getGroupState();
         System.out.println(groupState.size());
+        dataTypeMap.put("output_snmp", "integer");
+        dataTypeMap.put("flow_seq_num", "integer");
+        dataTypeMap.put("src_tos", "integer");
+        dataTypeMap.put("input_snmp", "integer");
+        dataTypeMap.put("l4_dst_port", "integer");
+        dataTypeMap.put("tcp_flags", "integer");
+        dataTypeMap.put("in_bytes", "integer");
+        dataTypeMap.put("in_pkts", "integer");
+        dataTypeMap.put("protocol", "integer");
+        dataTypeMap.put("flowset_id", "integer");
+        dataTypeMap.put("version", "integer");
+        dataTypeMap.put("dst_as", "integer");
+        dataTypeMap.put("ip_dscp", "integer");
+        dataTypeMap.put("l4_src_port", "integer");
+        dataTypeMap.put("ipv4_src_addr", "string");
+        dataTypeMap.put("first_switched", "string");
+        dataTypeMap.put("last_switched", "string");
+        dataTypeMap.put("ipv4_dst_addr", "string");
+        
         if (groupState.size() == 0) {
-            // System.out.println("Adding first event");
             groupState.putAll(event.toMap());
         }
-        // groupState.forEach((key, value) -> System.out.println(key + ":" + value));
-        // event.getMetadata().getAttributes().forEach((key, value) -> System.out.println(key + ":" + value)); prints nothing
-        System.out.println(event.getMetadata().toString());
-        System.out.println(event.getMetadata().getEventType());
-        System.out.println(event.getMetadata());
-        Set<Entry<String, Object>> entrySet = event.toMap().entrySet();
-        Iterator<Entry<String, Object>> iterator = entrySet.iterator();
+        // dataTypeMap.forEach((key, value) -> System.out.println(key + ":" + value));
         System.out.println();
-        // System.out.println("Getting to iterator");
-        while(iterator.hasNext()){
-            Entry<String, Object> entry = iterator.next();
-            String key = entry.getKey();
-            Object value = entry.getValue();
+       
+        Set<String> eventKeys = event.toMap().keySet();
+        for (String key : eventKeys) {
+            if (!dataTypeMap.containsKey(key)) {
+                System.out.println("Skipping " + key);
+                continue;
+            }
+            System.out.println("Checking key: " + key);
+            Object value = null;
+            String dataType = dataTypeMap.get(key);
+            switch (dataType) {
+                case "integer":
+                    value = event.get(key, Integer.class);
+                    break;
+
+                case "string":
+                    value = event.get(key, String.class);
+                    break;
+            }
+
             Object valueFromGroupState = groupState.getOrDefault(key, value);
-            if (value != valueFromGroupState){
-                System.out.println("Value is "+ value+" group state value is "+valueFromGroupState);
-                List<Object> listValues = null;
-                if (valueFromGroupState instanceof List) {
-                    System.out.println("valueFromGroupState is instanceof List");
-                    listValues = (List)valueFromGroupState;
-                } else {
-                    System.out.println("Initialising listvalues");
+            List<Object> listValues = null;
+            if (valueFromGroupState instanceof List) {
+                listValues = (List) valueFromGroupState;
+                listValues.add(value);
+            } else {
+                if (!value.equals(valueFromGroupState)) {
                     listValues = new ArrayList<>();
                     listValues.add(valueFromGroupState);
-                }
-                if (event.isValueAList(key)) {
-                    System.out.println("value is instanceof List");
-                    listValues.addAll(event.getList(key, Object.class));
-                } else {
-                    System.out.println("Adding value to list");
                     listValues.add(value);
+                    groupState.put(key, listValues);
                 }
-                groupState.put(key, listValues);
             }
         }
         return AggregateActionResponse.nullEventResponse();
